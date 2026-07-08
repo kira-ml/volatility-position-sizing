@@ -53,6 +53,12 @@ data/*.csv
 data/*.parquet
 data/*.pkl
 
+# Output files from pipeline (CSV, figures, etc.)
+outputs/tables/*.csv
+outputs/figures/*.png
+outputs/figures/*.jpg
+outputs/figures/*.pdf
+
 # Model artifacts
 models/
 *.pkl
