@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 """
-Animated 3D Visualization for LinkedIn/Instagram.
+Animated 3D Visualizations for LinkedIn/Instagram.
 
-Creates a rotating 3D surface plot exported as GIF.
+Creates rotating 3D surface plots exported as GIFs.
 Perfect for social media engagement hooks.
 
 Usage:
-    python src/visualize_3d_animated.py
+    python src/visualize_3d_animated_gif.py
 """
 
 import os
@@ -24,50 +24,19 @@ warnings.filterwarnings('ignore')
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src import config
+from src.models import load_model, load_scaler
+from src.features import get_feature_list
 
 
-def load_data(tables_path: str = 'outputs/tables') -> Dict:
-    """Load required data files."""
-    import pandas as pd
-    data = {}
-    
-    files = {
-        'model_results': os.path.join(tables_path, 'model_results.csv'),
-    }
-    
-    for name, path in files.items():
-        if os.path.exists(path):
-            data[name] = pd.read_csv(path)
-            print(f"Loaded: {name} ({len(data[name])} rows)")
-        else:
-            print(f"Warning: {path} not found")
-            data[name] = None
-    
-    return data
-
-
-def create_animated_3d_surface(
+def create_animated_rmse_surface(
     model_results: pd.DataFrame,
     output_dir: str = 'outputs/figures',
     duration: int = 8,
     fps: int = 30
 ) -> str:
     """
-    Create animated 3D surface plot (RMSE by Model × Feature Set).
-    
-    Args:
-        model_results: DataFrame with model results
-        output_dir: Output directory
-        duration: Video duration in seconds
-        fps: Frames per second
-    
-    Returns:
-        Path to GIF file
+    Animated 3D RMSE Surface: Model × Feature Set.
     """
-    from matplotlib.animation import FuncAnimation
-    
-    # Prepare data
     models = ['Ridge', 'RandomForest', 'LightGBM', 'Ensemble_RF_LGB']
     feature_sets = ['baseline_1', 'baseline_2', 'baseline_3', 'advanced']
     
@@ -90,57 +59,43 @@ def create_animated_3d_surface(
     X, Y = np.meshgrid(x, y)
     Z = rmse_matrix.T
     
-    # Color map for bars
+    # Dark style
     from matplotlib.colors import Normalize
     from matplotlib.cm import ScalarMappable
     
-    # Dark style
     plt.style.use('dark_background')
     fig = plt.figure(figsize=(12, 8), facecolor='#0a0a1a')
     ax = fig.add_subplot(111, projection='3d', facecolor='#0a0a1a')
     
-    # Create initial bar plot
+    # Surface
     colors_flat = Z.flatten()
     norm = Normalize(vmin=colors_flat.min(), vmax=colors_flat.max())
     cmap = cm.plasma
     
-    # Bar plot
-    bar_width = 0.6
-    bar_depth = 0.6
+    surf = ax.plot_surface(
+        X, Y, Z,
+        cmap=cmap,
+        linewidth=0,
+        antialiased=True,
+        alpha=0.9,
+        rstride=1,
+        cstride=1
+    )
     
-    bars = []
-    for i in range(len(x)):
-        for j in range(len(y)):
-            val = Z[j, i]
-            if not np.isnan(val):
-                color = cmap(norm(val))
-                bar = ax.bar3d(
-                    i - bar_width/2, j - bar_depth/2, 0,
-                    bar_width, bar_depth, val,
-                    color=color,
-                    alpha=0.85,
-                    edgecolor='none'
-                )
-                bars.append(bar)
-    
-    # Labels
     ax.set_xlabel('Model', fontweight='bold', labelpad=15, color='white')
     ax.set_ylabel('Feature Set', fontweight='bold', labelpad=15, color='white')
     ax.set_zlabel('RMSE', fontweight='bold', labelpad=15, color='white')
     ax.set_title('🎯 Model Performance: RMSE by Model & Feature Set', 
-                 fontweight='bold', fontsize=20, pad=25, color='white')
+                 fontweight='bold', fontsize=18, pad=25, color='white')
     
     ax.set_xticks(x)
     ax.set_xticklabels(['Ridge', 'RF', 'LGB', 'Ensemble'], rotation=30, ha='right', color='white')
     ax.set_yticks(y)
-    ax.set_yticklabels(['Baseline 1', 'Baseline 2', 'Baseline 3', 'Advanced'], 
-                       rotation=20, color='white')
+    ax.set_yticklabels(['Base 1', 'Base 2', 'Base 3', 'Advanced'], rotation=20, color='white')
     ax.tick_params(colors='white')
-    
-    # Grid
     ax.grid(True, alpha=0.2)
     
-    # Add colorbar
+    # Colorbar
     sm = ScalarMappable(norm=norm, cmap=cmap)
     sm.set_array([])
     cbar = fig.colorbar(sm, ax=ax, shrink=0.6, aspect=15, pad=0.1)
@@ -148,7 +103,7 @@ def create_animated_3d_surface(
     cbar.ax.yaxis.set_tick_params(color='white')
     plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
     
-    # Find best model
+    # Best model marker
     best_idx = np.unravel_index(np.nanargmin(Z), Z.shape)
     best_val = Z[best_idx]
     ax.scatter(
@@ -160,124 +115,6 @@ def create_animated_3d_surface(
         label=f'🌟 Best: {best_val:.4f}'
     )
     ax.legend(loc='upper right', facecolor='#0a0a1a', edgecolor='white')
-    
-    # Animation function
-    def update(frame):
-        """Update viewing angle for animation."""
-        ax.view_init(elev=20, azim=frame)
-        return ax,
-    
-    total_frames = duration * fps
-    anim = FuncAnimation(
-        fig, update,
-        frames=np.linspace(0, 360, total_frames),
-        interval=1000/fps,
-        blit=False
-    )
-    
-    # Save as GIF
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, '3d_animated_surface.gif')
-    
-    print(f"\nRendering animation... ({total_frames} frames)")
-    anim.save(
-        output_path,
-        writer='pillow',
-        fps=fps // 2,
-        dpi=100
-    )
-    print(f"Saved: {output_path}")
-    
-    plt.close()
-    
-    return output_path
-
-
-def create_animated_3d_scatter(
-    predictions_path: str,
-    output_dir: str = 'outputs/figures',
-    duration: int = 8,
-    fps: int = 30
-) -> str:
-    """
-    Create animated 3D scatter plot (Actual vs Predicted Volatility).
-    
-    Args:
-        predictions_path: Path to predictions.csv
-        output_dir: Output directory
-        duration: Video duration in seconds
-        fps: Frames per second
-    
-    Returns:
-        Path to GIF file
-    """
-    import pandas as pd
-    from matplotlib.animation import FuncAnimation
-    
-    if not os.path.exists(predictions_path):
-        print(f"Warning: {predictions_path} not found. Skipping 3D scatter.")
-        return None
-    
-    # Load predictions
-    df = pd.read_csv(predictions_path)
-    df['date'] = pd.to_datetime(df['date'])
-    
-    # Use first ticker
-    tickers = df['ticker'].unique()
-    df = df[df['ticker'] == tickers[0]].copy()
-    df = df.sort_values('date')
-    
-    # Calculate error
-    df['error'] = np.abs(df['actual_vol'] - df['predicted_vol'])
-    df['date_num'] = (df['date'] - df['date'].min()).dt.days.values
-    
-    # Dark style
-    plt.style.use('dark_background')
-    fig = plt.figure(figsize=(12, 8), facecolor='#0a0a1a')
-    ax = fig.add_subplot(111, projection='3d', facecolor='#0a0a1a')
-    
-    # Scatter plot
-    from matplotlib.colors import Normalize
-    from matplotlib.cm import ScalarMappable
-    
-    norm = Normalize(vmin=df['error'].min(), vmax=df['error'].max())
-    cmap = cm.coolwarm
-    
-    scatter = ax.scatter(
-        df['predicted_vol'].values,
-        df['actual_vol'].values,
-        df['date_num'].values,
-        c=df['error'].values,
-        cmap=cmap,
-        s=25,
-        alpha=0.7,
-        edgecolors='none'
-    )
-    
-    # Perfect prediction line
-    min_val = min(df['predicted_vol'].min(), df['actual_vol'].min())
-    max_val = max(df['predicted_vol'].max(), df['actual_vol'].max())
-    x_line = np.linspace(min_val, max_val, 50)
-    y_line = x_line
-    z_line = np.ones_like(x_line) * df['date_num'].median()
-    ax.plot(x_line, y_line, z_line, color='#f1c40f', linestyle='--', linewidth=2)
-    
-    # Labels
-    ax.set_xlabel('Predicted Volatility', fontweight='bold', labelpad=15, color='white')
-    ax.set_ylabel('Actual Volatility', fontweight='bold', labelpad=15, color='white')
-    ax.set_zlabel('Time (Days)', fontweight='bold', labelpad=15, color='white')
-    ax.set_title('📊 Forecast Accuracy: Actual vs Predicted', 
-                 fontweight='bold', fontsize=20, pad=25, color='white')
-    ax.tick_params(colors='white')
-    ax.grid(True, alpha=0.2)
-    
-    # Colorbar
-    sm = ScalarMappable(norm=norm, cmap=cmap)
-    sm.set_array([])
-    cbar = fig.colorbar(sm, ax=ax, shrink=0.6, aspect=15, pad=0.1)
-    cbar.set_label('Forecast Error', fontweight='bold', color='white')
-    cbar.ax.yaxis.set_tick_params(color='white')
-    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
     
     # Animation
     def update(frame):
@@ -292,11 +129,10 @@ def create_animated_3d_scatter(
         blit=False
     )
     
-    # Save as GIF
     os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, '3d_animated_scatter.gif')
+    output_path = os.path.join(output_dir, '3d_animated_rmse_surface.gif')
     
-    print(f"\nRendering 3D scatter animation... ({total_frames} frames)")
+    print(f"\nRendering RMSE animation... ({total_frames} frames)")
     anim.save(
         output_path,
         writer='pillow',
@@ -304,57 +140,269 @@ def create_animated_3d_scatter(
         dpi=100
     )
     print(f"Saved: {output_path}")
-    
     plt.close()
     
     return output_path
 
 
+def create_animated_calibration_surface(
+    model_results: pd.DataFrame,
+    output_dir: str = 'outputs/figures',
+    duration: int = 8,
+    fps: int = 30
+) -> str:
+    """
+    Animated 3D Calibration Surface: MZ Beta vs Model vs Feature Set.
+    """
+    models = ['Ridge', 'RandomForest', 'LightGBM', 'Ensemble_RF_LGB']
+    feature_sets = ['baseline_1', 'baseline_2', 'baseline_3', 'advanced']
+    
+    beta_matrix = []
+    for model in models:
+        row = model_results[model_results['model'] == model]
+        if not row.empty:
+            vals = []
+            for fs in feature_sets:
+                val = row[row['feature_set'] == fs]['mz_beta'].values
+                vals.append(val[0] if len(val) > 0 else np.nan)
+            beta_matrix.append(vals)
+        else:
+            beta_matrix.append([np.nan] * len(feature_sets))
+    
+    beta_matrix = np.array(beta_matrix)
+    
+    x = np.arange(len(models))
+    y = np.arange(len(feature_sets))
+    X, Y = np.meshgrid(x, y)
+    Z = beta_matrix.T
+    
+    plt.style.use('dark_background')
+    fig = plt.figure(figsize=(12, 8), facecolor='#0a0a1a')
+    ax = fig.add_subplot(111, projection='3d', facecolor='#0a0a1a')
+    
+    surf = ax.plot_surface(
+        X, Y, Z,
+        cmap=cm.coolwarm,
+        linewidth=0,
+        antialiased=True,
+        alpha=0.9,
+        rstride=1,
+        cstride=1,
+        vmin=0.0,
+        vmax=4.0
+    )
+    
+    # Perfect calibration plane at Z=1.0
+    x_plane = np.linspace(0, len(models)-1, 10)
+    y_plane = np.linspace(0, len(feature_sets)-1, 10)
+    X_plane, Y_plane = np.meshgrid(x_plane, y_plane)
+    Z_plane = np.ones_like(X_plane) * 1.0
+    ax.plot_surface(X_plane, Y_plane, Z_plane, color='#f1c40f', alpha=0.15)
+    
+    ax.set_xlabel('Model', fontweight='bold', labelpad=15, color='white')
+    ax.set_ylabel('Feature Set', fontweight='bold', labelpad=15, color='white')
+    ax.set_zlabel('MZ Beta', fontweight='bold', labelpad=15, color='white')
+    ax.set_title('📊 Calibration Landscape: MZ Beta by Model & Feature Set\n(Closer to 1.0 = Better)', 
+                 fontweight='bold', fontsize=18, pad=25, color='white')
+    
+    ax.set_xticks(x)
+    ax.set_xticklabels(['Ridge', 'RF', 'LGB', 'Ensemble'], rotation=30, ha='right', color='white')
+    ax.set_yticks(y)
+    ax.set_yticklabels(['Base 1', 'Base 2', 'Base 3', 'Advanced'], rotation=20, color='white')
+    ax.tick_params(colors='white')
+    ax.grid(True, alpha=0.2)
+    
+    cbar = fig.colorbar(surf, ax=ax, shrink=0.6, aspect=15, pad=0.1)
+    cbar.set_label('MZ Beta (β)', fontweight='bold', color='white')
+    cbar.ax.yaxis.set_tick_params(color='white')
+    plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
+    
+    # Animation
+    def update(frame):
+        ax.view_init(elev=25, azim=frame)
+        return ax,
+    
+    total_frames = duration * fps
+    anim = FuncAnimation(
+        fig, update,
+        frames=np.linspace(0, 360, total_frames),
+        interval=1000/fps,
+        blit=False
+    )
+    
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, '3d_animated_calibration_surface.gif')
+    
+    print(f"\nRendering Calibration animation... ({total_frames} frames)")
+    anim.save(
+        output_path,
+        writer='pillow',
+        fps=fps // 2,
+        dpi=100
+    )
+    print(f"Saved: {output_path}")
+    plt.close()
+    
+    return output_path
+
+
+def create_animated_prediction_surface(
+    feature_df: pd.DataFrame,
+    output_dir: str = 'outputs/figures',
+    duration: int = 8,
+    fps: int = 30
+) -> str:
+    """
+    Animated 3D Prediction Surface from saved model.
+    """
+    try:
+        model = load_model('lightgbm', 'advanced')
+        scaler = load_scaler('advanced')
+        
+        features = get_feature_list('advanced')
+        all_features = features + ['ticker_encoded']
+        
+        # Select top 2 features by variance
+        feature_df_subset = feature_df[features].copy()
+        variances = feature_df_subset.var().sort_values(ascending=False)
+        top_features = variances.head(2).index.tolist()
+        
+        print(f"  Prediction surface features: {top_features}")
+        
+        # Create grid
+        n_points = 25
+        f1_min, f1_max = feature_df[top_features[0]].quantile(0.05), feature_df[top_features[0]].quantile(0.95)
+        f2_min, f2_max = feature_df[top_features[1]].quantile(0.05), feature_df[top_features[1]].quantile(0.95)
+        
+        f1_vals = np.linspace(f1_min, f1_max, n_points)
+        f2_vals = np.linspace(f2_min, f2_max, n_points)
+        F1, F2 = np.meshgrid(f1_vals, f2_vals)
+        
+        # Create prediction grid
+        pred_grid = np.zeros_like(F1)
+        for i in range(n_points):
+            for j in range(n_points):
+                X_sample = pd.DataFrame({
+                    features[0]: [F1[i, j]],
+                    features[1]: [F2[i, j]],
+                })
+                for feat in features[2:]:
+                    X_sample[feat] = feature_df[feat].median()
+                X_sample['ticker_encoded'] = 0
+                X_sample = X_sample[all_features]
+                
+                X_scaled = scaler.transform(X_sample)
+                pred_grid[i, j] = model.predict(X_scaled)[0]
+        
+        plt.style.use('dark_background')
+        fig = plt.figure(figsize=(12, 8), facecolor='#0a0a1a')
+        ax = fig.add_subplot(111, projection='3d', facecolor='#0a0a1a')
+        
+        surf = ax.plot_surface(
+            F1, F2, pred_grid,
+            cmap=cm.plasma,
+            linewidth=0,
+            antialiased=True,
+            alpha=0.9
+        )
+        
+        ax.set_xlabel(top_features[0], fontweight='bold', labelpad=15, color='white')
+        ax.set_ylabel(top_features[1], fontweight='bold', labelpad=15, color='white')
+        ax.set_zlabel('Predicted Volatility', fontweight='bold', labelpad=15, color='white')
+        ax.set_title(f'🧠 Model Prediction Surface: LightGBM\n{top_features[0]} vs {top_features[1]}', 
+                     fontweight='bold', fontsize=18, pad=25, color='white')
+        ax.tick_params(colors='white')
+        ax.grid(True, alpha=0.2)
+        
+        cbar = fig.colorbar(surf, ax=ax, shrink=0.6, aspect=15, pad=0.1)
+        cbar.set_label('Predicted Volatility', fontweight='bold', color='white')
+        cbar.ax.yaxis.set_tick_params(color='white')
+        plt.setp(plt.getp(cbar.ax.axes, 'yticklabels'), color='white')
+        
+        # Animation
+        def update(frame):
+            ax.view_init(elev=30, azim=frame)
+            return ax,
+        
+        total_frames = duration * fps
+        anim = FuncAnimation(
+            fig, update,
+            frames=np.linspace(0, 360, total_frames),
+            interval=1000/fps,
+            blit=False
+        )
+        
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, '3d_animated_prediction_surface.gif')
+        
+        print(f"\nRendering Prediction Surface animation... ({total_frames} frames)")
+        anim.save(
+            output_path,
+            writer='pillow',
+            fps=fps // 2,
+            dpi=100
+        )
+        print(f"Saved: {output_path}")
+        plt.close()
+        
+        return output_path
+        
+    except Exception as e:
+        print(f"Warning: Could not create prediction surface: {e}")
+        return None
+
+
 def main():
-    """Main entry point."""
+    """Generate all animated 3D visualizations."""
     print("=" * 60)
     print("ANIMATED 3D VISUALIZATIONS FOR LINKEDIN")
     print("=" * 60)
     
-    # Load data
-    data = load_data('outputs/tables')
-    
     output_dir = 'outputs/figures'
     os.makedirs(output_dir, exist_ok=True)
     
-    print("\nGenerating animated 3D visualizations...")
+    # Load data
+    model_results_path = 'outputs/tables/model_results.csv'
+    if not os.path.exists(model_results_path):
+        print(f"Error: {model_results_path} not found. Run the pipeline first.")
+        return
+    
+    model_results = pd.read_csv(model_results_path)
+    print(f"Loaded model results: {len(model_results)} rows")
+    
+    feature_path = 'data/processed/feature_matrix.parquet'
+    if os.path.exists(feature_path):
+        feature_df = pd.read_parquet(feature_path)
+        print(f"Loaded feature data: {feature_df.shape}")
+    else:
+        print(f"Warning: {feature_path} not found.")
+        feature_df = None
+    
+    print("\nGenerating animated 3D GIFs...")
     print("-" * 40)
     
-    # 1. Animated 3D Surface (RMSE by Model × Feature Set)
-    if data['model_results'] is not None and len(data['model_results']) > 0:
-        create_animated_3d_surface(
-            data['model_results'],
-            output_dir,
-            duration=8,
-            fps=30
-        )
+    # 1. Animated RMSE Surface
+    create_animated_rmse_surface(model_results, output_dir)
     
-    # 2. Animated 3D Scatter (Actual vs Predicted)
-    predictions_path = os.path.join('outputs/tables', 'predictions.csv')
-    if os.path.exists(predictions_path):
-        create_animated_3d_scatter(
-            predictions_path,
-            output_dir,
-            duration=8,
-            fps=30
-        )
+    # 2. Animated Calibration Surface
+    create_animated_calibration_surface(model_results, output_dir)
+    
+    # 3. Animated Prediction Surface (if feature data available)
+    if feature_df is not None:
+        create_animated_prediction_surface(feature_df, output_dir)
     
     print("\n" + "=" * 60)
     print("COMPLETE!")
     print("=" * 60)
     print(f"Output directory: {output_dir}")
-    print("Files generated:")
-    print("  - 3d_animated_surface.gif")
-    print("  - 3d_animated_scatter.gif")
+    print("Animated GIFs generated:")
+    print("  - 3d_animated_rmse_surface.gif")
+    print("  - 3d_animated_calibration_surface.gif")
+    print("  - 3d_animated_prediction_surface.gif")
     print("\n📌 LinkedIn Post Tips:")
     print("  1. Upload GIF directly to LinkedIn")
     print("  2. Caption: 'How I used ML to forecast volatility...'")
-    print("  3. Tag relevant hashtags: #DataScience #QuantFinance #MachineLearning")
+    print("  3. Hashtags: #DataScience #QuantFinance #MachineLearning")
     print("=" * 60)
 
 

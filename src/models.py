@@ -10,6 +10,9 @@ from typing import Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+import joblib
+import os
+
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, mean_squared_error
@@ -735,6 +738,75 @@ def get_ridge_feature_importance(
     }).sort_values('coefficient', ascending=False)
 
     return coefficients
+
+def save_model(model, model_name: str, feature_set: str, output_dir: str = 'outputs/models'):
+    """
+    Save trained model to disk using joblib.
+    
+    Args:
+        model: Trained model (sklearn, lightgbm, etc.)
+        model_name: Name of the model ('ridge', 'lightgbm', 'rf', 'ensemble')
+        feature_set: Feature set used ('baseline_1', 'baseline_2', 'baseline_3', 'advanced')
+        output_dir: Directory to save models
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    filename = f"{model_name}_{feature_set}.joblib"
+    filepath = os.path.join(output_dir, filename)
+    joblib.dump(model, filepath)
+    print(f"Model saved: {filepath}")
+    return filepath
+
+
+def load_model(model_name: str, feature_set: str, model_dir: str = 'outputs/models'):
+    """
+    Load trained model from disk.
+    
+    Args:
+        model_name: Name of the model ('ridge', 'lightgbm', 'rf', 'ensemble')
+        feature_set: Feature set used ('baseline_1', 'baseline_2', 'baseline_3', 'advanced')
+        model_dir: Directory containing models
+    
+    Returns:
+        Loaded model
+    """
+    filename = f"{model_name}_{feature_set}.joblib"
+    filepath = os.path.join(model_dir, filename)
+    
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Model not found: {filepath}")
+    
+    model = joblib.load(filepath)
+    print(f"Model loaded: {filepath}")
+    return model
+
+
+def save_scaler(scaler, feature_set: str, output_dir: str = 'outputs/models'):
+    """
+    Save fitted scaler to disk.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    filename = f"scaler_{feature_set}.joblib"
+    filepath = os.path.join(output_dir, filename)
+    joblib.dump(scaler, filepath)
+    print(f"Scaler saved: {filepath}")
+    return filepath
+
+
+def load_scaler(feature_set: str, model_dir: str = 'outputs/models'):
+    """
+    Load fitted scaler from disk.
+    """
+    filename = f"scaler_{feature_set}.joblib"
+    filepath = os.path.join(model_dir, filename)
+    
+    if not os.path.exists(filepath):
+        raise FileNotFoundError(f"Scaler not found: {filepath}")
+    
+    scaler = joblib.load(filepath)
+    print(f"Scaler loaded: {filepath}")
+    return scaler
+
+
 
 
 # Quick test function

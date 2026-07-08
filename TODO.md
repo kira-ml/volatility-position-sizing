@@ -487,6 +487,62 @@ explorer outputs/tables/
 ```
 
 ---
+## 📝 Day 2 Evening Session: 3D & Animated Visualizations
+
+### Completed:
+- [x] Created `src/visualize_3d_surface.py` - 3D static visualizations (RMSE surface, calibration landscape, prediction surface)
+- [x] Created `src/visualize_3d_animated_gif.py` - Animated 3D visualizations as GIFs for LinkedIn/Instagram
+- [x] Added model saving functionality to pipeline (`outputs/models/`)
+- [x] Added `save_model()`, `load_model()`, `save_scaler()`, `load_scaler()` to `src/models.py`
+- [x] Generated 3D visualizations using REAL trained model (no synthetic data)
+- [x] All visualizations use dark quant finance theme
+
+### 3D Visualizations Created:
+
+**Static PNGs:**
+1. `3d_rmse_surface_dark.png` - RMSE by Model × Feature Set
+2. `3d_calibration_landscape.png` - MZ Beta by Model × Feature Set (with β=1.0 reference plane)
+3. `3d_prediction_surface_from_model.png` - Model prediction surface using saved LightGBM model
+
+**Animated GIFs (LinkedIn/Instagram Ready):**
+1. `3d_animated_rmse_surface.gif` - Rotating RMSE surface
+2. `3d_animated_calibration_surface.gif` - Rotating calibration landscape
+3. `3d_animated_prediction_surface.gif` - Rotating prediction surface from saved model
+
+### Model Persistence:
+- Models now saved to: `outputs/models/lightgbm_advanced.joblib`
+- Scalers saved to: `outputs/models/scaler_advanced.joblib`
+- Can load trained model without re-running pipeline
+
+### Key Insight:
+- Model persistence enables faster iteration on visualizations
+- 3D animated GIFs are optimized for social media engagement (auto-play on LinkedIn)
+
+### Files Added:
+- `src/visualize_3d_surface.py`
+- `src/visualize_3d_animated_gif.py`
+
+### Files Modified:
+- `src/models.py` - Added save/load functions
+- `src/run_pipeline.py` - Saves model during backtest
+- `TODO.md` - Added Day 2 evening session log
+
+---
+
+**Quick Commands:**
+```bash
+# Generate 3D visualizations
+python src/visualize_3d_surface.py
+
+# Generate animated GIFs for LinkedIn
+python src/visualize_3d_animated_gif.py
+```
+
+
+
+
+
+
 
 **Last Updated:** July 9, 2026 01:00
 

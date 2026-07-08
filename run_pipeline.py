@@ -409,8 +409,17 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
                     )
 
 
+                
                 # Train LightGBM and get predictions
-                lgb_preds, lgb_model = train_lightgbm(X_train, y_train, X_test)           
+                lgb_preds, lgb_model = train_lightgbm(X_train, y_train, X_test)
+                
+                # SAVE TRAINED MODEL
+                from src.models import save_model, save_scaler
+                save_model(lgb_model, 'lightgbm', backtest_feature_set)
+                if scaler is not None:
+                    save_scaler(scaler, backtest_feature_set)
+
+
                 
                 # SAVE PREDICTIONS FOR VOLATILITY CONE
                 predictions_df = pd.DataFrame({
