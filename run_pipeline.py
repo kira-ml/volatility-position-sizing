@@ -357,45 +357,59 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
         print("-" * 50)
 
         try:
-            # Use best Ridge model for backtest (or best overall)
-            # For now, use Ridge with best feature set
-            # In production, we'd load the actual trained model
-
-            # Get the best Ridge model result
+            # Use the best performing feature set for backtest
+            # Find best Ridge model result
             ridge_results = results_df[results_df['model'] == 'Ridge']
             if not ridge_results.empty:
                 best_ridge_idx = ridge_results['rmse'].idxmin()
                 backtest_feature_set = ridge_results.loc[best_ridge_idx, 'feature_set']
                 print(f"Backtest using: Ridge ({backtest_feature_set})")
 
-                # Use the feature set selected above
+                # Get the feature set for backtest
+                from src.features import filter_features
                 backtest_df = filter_features(feature_df, backtest_feature_set)
 
-                # For backtest, we need the actual predictions
-                # For now, we'll use a simplified approach: use the feature values
-                # as predictions for the baselines
+                # Split data chronologically
+                from src.models import temporal_train_test_split
+                train_df, test_df = temporal_train_test_split(backtest_df, test_ratio=args.test_ratio)
 
-                # Simplified backtest: use predicted_vol from the test set
-                # Since we don't have predictions stored, we'll use the feature values
-                # This is a placeholder - in production, we'd use saved predictions
+                # Extract test data
+                test_returns = test_df['target'].values
+                test_dates = test_df['date'].values
 
-                # Generate backtest report
+                # Use the best feature as predicted volatility
+                if backtest_feature_set == 'baseline_1' and 'rolling_vol_21' in test_df.columns:
+                    predicted_vol = test_df['rolling_vol_21'].values
+                elif backtest_feature_set == 'baseline_2' and 'ewma_vol_94' in test_df.columns:
+                    predicted_vol = test_df['ewma_vol_94'].values
+                elif 'ewma_vol_94' in test_df.columns:
+                    predicted_vol = test_df['ewma_vol_94'].values
+                else:
+                    predicted_vol = test_df['target'].values
+
+                # Run backtest comparison - convert to pandas Series
+                from src.backtest import compare_backtests
+                comparison = compare_backtests(
+                    returns=pd.Series(test_returns, index=pd.DatetimeIndex(test_dates)),
+                    predicted_vol=pd.Series(predicted_vol, index=pd.DatetimeIndex(test_dates)),
+                    target_vol=args.target_vol,
+                    max_leverage=args.max_leverage,
+                    risk_free_rate=0.0,
+                    dates=pd.DatetimeIndex(test_dates)
+                )
+
+                # Save results
                 if not args.no_save:
-                    # This is a simplified version since we don't have predictions stored
-                    # The actual implementation would use predictions from models.py
+                    tables_path = os.path.join(args.output_dir, 'tables')
+                    os.makedirs(tables_path, exist_ok=True)
+                    comparison.to_csv(os.path.join(tables_path, 'backtest_comparison.csv'))
+                    print(f"Backtest results saved to {tables_path}")
 
-                    # For now, use the target feature as a proxy (will be improved later)
-                    comparison = generate_backtest_report(
-                        returns=np.random.randn(100) * 0.01,  # Placeholder
-                        predicted_vol=np.ones(100) * 0.15,    # Placeholder
-                        dates=pd.date_range('2023-01-01', periods=100),
-                        target_vol=args.target_vol,
-                        max_leverage=args.max_leverage,
-                        output_dir=args.output_dir
-                    )
+                print("Backtest completed successfully")
+                results['backtest_comparison'] = comparison
 
-                    print("Backtest report generated (placeholder)")
-                    results['backtest_comparison'] = comparison
+            else:
+                print("No Ridge results found, skipping backtest")
 
         except Exception as e:
             logger.warning(f"Backtest simulation failed: {e}")

@@ -119,10 +119,10 @@ def evaluate_predictions(
     X_mz = sm.add_constant(y_pred)
     try:
         mz_model = sm.OLS(y_true, X_mz).fit()
-        alpha = mz_model.params[0]
-        beta = mz_model.params[1]
-        alpha_se = mz_model.bse[0]
-        beta_se = mz_model.bse[1]
+        alpha = mz_model.params.iloc[0]
+        beta = mz_model.params.iloc[1]
+        alpha_se = mz_model.bse.iloc[0]
+        beta_se = mz_model.bse.iloc[1]
 
         # F-test for joint null: alpha = 0, beta = 1
         r_matrix = np.array([[1, 0], [0, 1]])

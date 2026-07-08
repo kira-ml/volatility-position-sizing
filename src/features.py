@@ -242,6 +242,9 @@ def compute_vix_features(vix: pd.DataFrame) -> Dict[str, pd.Series]:
         return {}
 
     vix_close = vix['Close']
+    # Ensure it's a 1D Series
+    if isinstance(vix_close, pd.DataFrame):
+        vix_close = vix_close.iloc[:, 0]
 
     features = {
         'vix_level': vix_close,
@@ -274,7 +277,7 @@ def compute_advanced_features(
         rolling_vol_63: 63-day rolling volatility.
         rolling_vol_252: 252-day rolling volatility.
         ewma_vol_94: EWMA volatility (λ=0.94).
-        vix_level: VIX level series.
+        vix_level: VIX level series (1D).
         sector_ewma: Sector-average EWMA volatility (optional).
 
     Returns:
@@ -286,9 +289,15 @@ def compute_advanced_features(
     features['vol_regime'] = rolling_vol_21 / rolling_vol_252
 
     # 2. VIX × Rolling Vol: interaction effect
+    # Ensure vix_level is a 1D Series
+    if isinstance(vix_level, pd.DataFrame):
+        vix_level = vix_level.iloc[:, 0]
+    elif isinstance(vix_level, np.ndarray) and vix_level.ndim == 2:
+        vix_level = vix_level.flatten()
+    
     # Broadcast VIX to all tickers
     vix_broadcast = pd.DataFrame(
-        {ticker: vix_level for ticker in returns.columns},
+        {ticker: vix_level.values for ticker in returns.columns},
         index=returns.index
     )
     features['vix_times_rolling_vol'] = vix_broadcast * rolling_vol_21
@@ -306,7 +315,7 @@ def compute_advanced_features(
     # 6. Market stress: VIX relative to normal level (20)
     features['market_stress'] = (vix_level - 20) / 20
     features['market_stress'] = pd.DataFrame(
-        {ticker: features['market_stress'] for ticker in returns.columns},
+        {ticker: features['market_stress'].values for ticker in returns.columns},
         index=returns.index
     )
 
@@ -315,7 +324,6 @@ def compute_advanced_features(
         features['sector_relative_vol'] = ewma_vol_94 / sector_ewma
 
     return features
-
 
 def compute_sector_ewma(
     returns: pd.DataFrame,
@@ -371,19 +379,6 @@ def assemble_feature_matrix(
 ) -> pd.DataFrame:
     """
     Assemble complete feature matrix with all features.
-
-    This is the main orchestration function that:
-    1. Computes log returns
-    2. Calculates target (forward volatility)
-    3. Computes ALL features (Baseline 1, 2, 3, Advanced)
-    4. Assembles into long format (date, ticker, target, features)
-
-    Args:
-        prices: Multi-index DataFrame with OHLCV data.
-        vix: DataFrame with VIX data.
-
-    Returns:
-        DataFrame in long format: one row per (date, ticker) combination.
     """
     # 1. Compute log returns
     returns = compute_log_returns(prices)
@@ -405,6 +400,18 @@ def assemble_feature_matrix(
     # 4. Compute VIX features
     vix_features = compute_vix_features(vix)
     vix_level = vix_features.get('vix_level', pd.Series(index=returns.index, dtype=float))
+
+    # Ensure vix_level is 1D Series
+    if isinstance(vix_level, pd.DataFrame):
+        vix_level = vix_level.iloc[:, 0]
+    elif isinstance(vix_level, np.ndarray) and vix_level.ndim == 2:
+        vix_level = vix_level.flatten()
+
+    # Handle vix_change_5d - fill first 5 days with 0 (no change)
+    vix_change_5d = vix_features.get('vix_change_5d', pd.Series(index=returns.index, dtype=float))
+    if isinstance(vix_change_5d, pd.DataFrame):
+        vix_change_5d = vix_change_5d.iloc[:, 0]
+    vix_change_5d = vix_change_5d.fillna(0)
 
     # 5. Compute sector EWMA
     sector_ewma = compute_sector_ewma(returns, config.SECTOR_MAP)
@@ -436,12 +443,11 @@ def assemble_feature_matrix(
     # Baseline 3 features (additional)
     all_features['parkinson_vol_21'] = parkinson_vol
     all_features['vix_level'] = pd.DataFrame(
-        {ticker: vix_level for ticker in returns.columns},
+        {ticker: vix_level.values for ticker in returns.columns},
         index=returns.index
     )
     all_features['vix_change_5d'] = pd.DataFrame(
-        {ticker: vix_features.get('vix_change_5d', pd.Series(index=returns.index, dtype=float))
-         for ticker in returns.columns},
+        {ticker: vix_change_5d.values for ticker in returns.columns},
         index=returns.index
     )
     all_features['sector_ewma'] = sector_ewma
@@ -474,12 +480,51 @@ def assemble_feature_matrix(
 
     feature_df = pd.concat(feature_list, ignore_index=True)
 
-    # 9. Drop rows with NaN in target or any feature
+    # 9. Sort by ticker and date
+    feature_df = feature_df.sort_values(['ticker', 'date'])
+
+    # 10. Forward fill features within each ticker
+    feature_cols = [c for c in feature_df.columns if c not in ['date', 'ticker', 'target']]
+    
+    # Group by ticker and forward fill each feature
+    for col in feature_cols:
+        feature_df[col] = feature_df.groupby('ticker')[col].ffill()
+
+    # 11. For remaining NaN values, use global median (not per ticker, to avoid empty groups)
+    for col in feature_cols:
+        if feature_df[col].isna().any():
+            median_val = feature_df[col].median()
+            if pd.isna(median_val):
+                median_val = 0
+            feature_df[col] = feature_df[col].fillna(median_val)
+
+    # 12. Drop rows where target is NaN (target cannot be imputed)
     initial_len = len(feature_df)
+    feature_df = feature_df.dropna(subset=['target'])
+    target_dropped = initial_len - len(feature_df)
+    if target_dropped > 0:
+        warnings.warn(f"Dropped {target_dropped} rows with NaN target (end of series)")
+
+    # 13. Final check - drop any remaining NaN
+    before_final = len(feature_df)
     feature_df = feature_df.dropna()
-    dropped = initial_len - len(feature_df)
-    if dropped > 0:
-        warnings.warn(f"Dropped {dropped} rows with NaN values")
+    final_dropped = before_final - len(feature_df)
+    if final_dropped > 0:
+        warnings.warn(f"Dropped {final_dropped} rows with remaining NaN values")
+
+    # 14. Final validation
+    if len(feature_df) == 0:
+        raise ValueError(
+            f"Feature matrix is empty after processing. "
+            f"Initial rows: {initial_len}, "
+            f"Target NaN rows: {target_dropped}, "
+            f"Final drop: {final_dropped}. "
+            f"Check data quality and feature calculations."
+        )
+
+    print(f"Final feature matrix shape: {feature_df.shape}")
+    print(f"Date range: {feature_df['date'].min()} to {feature_df['date'].max()}")
+    print(f"Unique tickers: {feature_df['ticker'].nunique()}")
 
     return feature_df
 

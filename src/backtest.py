@@ -79,7 +79,7 @@ def compute_realized_volatility(
     return vol
 
 
-def compute_max_drawdown(returns: np.ndarray) -> float:
+def compute_max_drawdown(returns: Union[np.ndarray, pd.Series]) -> float:
     """
     Compute maximum drawdown from daily returns.
 
@@ -91,6 +91,10 @@ def compute_max_drawdown(returns: np.ndarray) -> float:
     """
     if len(returns) == 0:
         return np.nan
+
+    # Convert to pandas Series if numpy array
+    if isinstance(returns, np.ndarray):
+        returns = pd.Series(returns)
 
     # Compute cumulative returns
     cumulative = (1 + returns).cumprod()
@@ -219,7 +223,7 @@ def backtest_dynamic_sizing(
 
 
 def compute_backtest_metrics(
-    returns: np.ndarray,
+    returns: Union[np.ndarray, pd.Series],
     target_vol: Optional[float] = None,
     risk_free_rate: float = 0.0
 ) -> Dict[str, float]:
@@ -234,6 +238,12 @@ def compute_backtest_metrics(
     Returns:
         Dictionary with all metrics.
     """
+    # Convert numpy array to pandas Series if needed
+    if isinstance(returns, np.ndarray):
+        returns = pd.Series(returns)
+    elif not isinstance(returns, pd.Series):
+        returns = pd.Series(returns)
+
     metrics = {}
 
     # Basic metrics
@@ -242,9 +252,9 @@ def compute_backtest_metrics(
     metrics['annualized_return'] = (1 + metrics['total_return']) ** (config.ANNUALIZATION_FACTOR / len(returns)) - 1
 
     # Risk metrics
-    metrics['realized_vol'] = compute_realized_volatility(returns)
-    metrics['sharpe_ratio'] = compute_sharpe_ratio(returns, risk_free_rate)
-    metrics['max_drawdown'] = compute_max_drawdown(returns)
+    metrics['realized_vol'] = compute_realized_volatility(returns.values)
+    metrics['sharpe_ratio'] = compute_sharpe_ratio(returns.values, risk_free_rate)
+    metrics['max_drawdown'] = compute_max_drawdown(returns.values)
 
     # Volatility deviation (if target provided)
     if target_vol is not None:
@@ -339,8 +349,8 @@ def run_backtest(
 
 
 def compare_backtests(
-    returns: np.ndarray,
-    predicted_vol: np.ndarray,
+    returns: Union[np.ndarray, pd.Series],
+    predicted_vol: Union[np.ndarray, pd.Series],
     target_vol: float = 0.15,
     max_leverage: float = 1.0,
     min_scale: float = 0.0,
@@ -349,40 +359,53 @@ def compare_backtests(
 ) -> pd.DataFrame:
     """
     Run and compare static vs dynamic backtests.
-
-    Args:
-        returns: Daily asset returns.
-        predicted_vol: Predicted volatility (annualized) for each day.
-        target_vol: Target volatility (annualized).
-        max_leverage: Maximum leverage cap.
-        min_scale: Minimum scale (floor).
-        risk_free_rate: Annualized risk-free rate.
-        dates: Dates for time-series analysis.
-
-    Returns:
-        DataFrame comparing static vs dynamic performance.
     """
+    # Convert numpy arrays to pandas Series with dates if provided
+    if isinstance(returns, np.ndarray):
+        if dates is not None and len(dates) == len(returns):
+            returns = pd.Series(returns, index=dates)
+        else:
+            returns = pd.Series(returns)
+    if isinstance(predicted_vol, np.ndarray):
+        if dates is not None and len(dates) == len(predicted_vol):
+            predicted_vol = pd.Series(predicted_vol, index=dates)
+        else:
+            predicted_vol = pd.Series(predicted_vol)
+    
+    # Ensure they are pandas Series
+    if not isinstance(returns, pd.Series):
+        returns = pd.Series(returns)
+    if not isinstance(predicted_vol, pd.Series):
+        predicted_vol = pd.Series(predicted_vol)
+    
     # Align inputs
+    common_idx = returns.index.intersection(predicted_vol.index)
+    returns = returns.loc[common_idx]
+    predicted_vol = predicted_vol.loc[common_idx]
+    
     if len(returns) != len(predicted_vol):
         min_len = min(len(returns), len(predicted_vol))
-        returns = returns[:min_len]
-        predicted_vol = predicted_vol[:min_len]
-        if dates is not None:
-            dates = dates[:min_len]
+        returns = returns.iloc[:min_len]
+        predicted_vol = predicted_vol.iloc[:min_len]
+
+    # Extract numpy arrays for backtest functions
+    returns_array = returns.values
+    predicted_vol_array = predicted_vol.values
+    dates_idx = returns.index if dates is None else dates
 
     # Static backtest
-    static_results = backtest_static_sizing(returns)
-    static_metrics = compute_backtest_metrics(static_results['returns'], target_vol, risk_free_rate)
+    static_results = backtest_static_sizing(returns_array)
+    static_metrics = compute_backtest_metrics(pd.Series(static_results['returns']), target_vol, risk_free_rate)
 
     # Dynamic backtest
     dynamic_results = backtest_dynamic_sizing(
-        returns=returns,
-        predicted_vol=predicted_vol,
+        returns=returns_array,
+        predicted_vol=predicted_vol_array,
         target_vol=target_vol,
         max_leverage=max_leverage,
         min_scale=min_scale
     )
-    dynamic_metrics = compute_backtest_metrics(dynamic_results['returns'], target_vol, risk_free_rate)
+    dynamic_metrics = compute_backtest_metrics(pd.Series(dynamic_results['returns']), target_vol, risk_free_rate)
 
     # Create comparison DataFrame
     comparison = pd.DataFrame({
@@ -397,14 +420,12 @@ def compare_backtests(
     lower_better = ['realized_vol', 'max_drawdown', 'vol_deviation']
     for metric in lower_better:
         if metric in comparison.index:
-            # Positive improvement means static - dynamic > 0
             comparison.loc[metric, 'Improvement'] = comparison.loc[metric, 'Static'] - comparison.loc[metric, 'Dynamic']
 
     # For metrics where higher is better (sharpe, return)
     higher_better = ['sharpe_ratio', 'annualized_return', 'total_return']
     for metric in higher_better:
         if metric in comparison.index:
-            # Positive improvement means dynamic - static > 0
             comparison.loc[metric, 'Improvement'] = comparison.loc[metric, 'Dynamic'] - comparison.loc[metric, 'Static']
 
     return comparison
@@ -545,8 +566,8 @@ def plot_volatility_target_tracking(
 
 
 def generate_backtest_report(
-    returns: np.ndarray,
-    predicted_vol: np.ndarray,
+    returns: Union[np.ndarray, pd.Series],
+    predicted_vol: Union[np.ndarray, pd.Series],
     dates: pd.DatetimeIndex,
     target_vol: float = 0.15,
     max_leverage: float = 1.0,
@@ -570,6 +591,27 @@ def generate_backtest_report(
     Returns:
         Comparison DataFrame.
     """
+    # Convert numpy arrays to pandas Series if needed
+    if isinstance(returns, np.ndarray):
+        returns = pd.Series(returns, index=dates)
+    if isinstance(predicted_vol, np.ndarray):
+        predicted_vol = pd.Series(predicted_vol, index=dates)
+    
+    # Ensure they are pandas Series
+    if not isinstance(returns, pd.Series):
+        returns = pd.Series(returns)
+    if not isinstance(predicted_vol, pd.Series):
+        predicted_vol = pd.Series(predicted_vol)
+    
+    # Align indices
+    common_idx = returns.index.intersection(predicted_vol.index)
+    returns = returns.loc[common_idx]
+    predicted_vol = predicted_vol.loc[common_idx]
+    
+    # Ensure dates align
+    if len(dates) != len(returns):
+        dates = returns.index
+
     # Create output directories
     figures_dir = os.path.join(output_dir, 'figures')
     tables_dir = os.path.join(output_dir, 'tables')
@@ -579,15 +621,15 @@ def generate_backtest_report(
     # Align inputs
     if len(returns) != len(predicted_vol):
         min_len = min(len(returns), len(predicted_vol))
-        returns = returns[:min_len]
-        predicted_vol = predicted_vol[:min_len]
+        returns = returns.iloc[:min_len]
+        predicted_vol = predicted_vol.iloc[:min_len]
         dates = dates[:min_len]
 
     # Run backtests
-    static_results = backtest_static_sizing(returns)
+    static_results = backtest_static_sizing(returns.values)
     dynamic_results = backtest_dynamic_sizing(
-        returns=returns,
-        predicted_vol=predicted_vol,
+        returns=returns.values,
+        predicted_vol=predicted_vol.values,
         target_vol=target_vol,
         max_leverage=max_leverage,
         min_scale=min_scale
@@ -599,8 +641,8 @@ def generate_backtest_report(
 
     # Create comparison
     comparison = compare_backtests(
-        returns=returns,
-        predicted_vol=predicted_vol,
+        returns=returns.values,
+        predicted_vol=predicted_vol.values,
         target_vol=target_vol,
         max_leverage=max_leverage,
         min_scale=min_scale,
@@ -649,7 +691,6 @@ def generate_backtest_report(
     )
 
     # Rolling volatility comparison
-    # This is already covered above but we can add a combined version
     rolling_static = pd.Series(static_results['returns']).rolling(21).std() * np.sqrt(config.ANNUALIZATION_FACTOR)
     rolling_dynamic = pd.Series(dynamic_results['returns']).rolling(21).std() * np.sqrt(config.ANNUALIZATION_FACTOR)
 
