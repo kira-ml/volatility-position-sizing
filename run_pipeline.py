@@ -377,15 +377,22 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
                 test_returns = test_df['target'].values
                 test_dates = test_df['date'].values
 
-                # Use the best feature as predicted volatility
-                if backtest_feature_set == 'baseline_1' and 'rolling_vol_21' in test_df.columns:
-                    predicted_vol = test_df['rolling_vol_21'].values
-                elif backtest_feature_set == 'baseline_2' and 'ewma_vol_94' in test_df.columns:
-                    predicted_vol = test_df['ewma_vol_94'].values
-                elif 'ewma_vol_94' in test_df.columns:
-                    predicted_vol = test_df['ewma_vol_94'].values
-                else:
-                    predicted_vol = test_df['target'].values
+                # CRITICAL FIX: Train Ridge model on training data and predict on test data
+                from src.models import prepare_features, train_ridge
+                X_train, y_train, scaler, le = prepare_features(train_df, backtest_feature_set, scale=True)
+                X_test, y_test, _, _ = prepare_features(test_df, backtest_feature_set, scale=False)
+
+                # Apply training scaler to test data
+                if scaler is not None:
+                    X_test = pd.DataFrame(
+                        scaler.transform(X_test),
+                        columns=X_test.columns,
+                        index=X_test.index
+                    )
+
+                # Train Ridge and get predictions
+                ridge_preds, ridge_model = train_ridge(X_train, y_train, X_test, alpha=args.ridge_alpha)
+                predicted_vol = ridge_preds
 
                 # Run backtest comparison - convert to pandas Series
                 from src.backtest import compare_backtests

@@ -21,7 +21,7 @@ import seaborn as sns
 from scipy import stats
 from statsmodels.tsa.stattools import acf
 from statsmodels.regression.linear_model import OLS
-from statsmodels.tools.sm_exceptions import MissingDataError
+import statsmodels.api as sm
 
 from src import config
 

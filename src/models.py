@@ -236,14 +236,16 @@ def train_lightgbm(
     X_train: pd.DataFrame,
     y_train: pd.Series,
     X_test: pd.DataFrame,
-    n_estimators: int = 100,
-    learning_rate: float = 0.1,
-    max_depth: int = 6,
-    num_leaves: int = 31,
-    min_child_samples: int = 20
+    n_estimators: int = 200,
+    learning_rate: float = 0.05,
+    max_depth: int = 5,
+    num_leaves: int = 20,
+    min_child_samples: int = 30,
+    reg_lambda: float = 0.1,
+    reg_alpha: float = 0.1
 ) -> Tuple[np.ndarray, lgb.LGBMRegressor]:
     """
-    Train LightGBM model with sensible defaults.
+    Train LightGBM model with tuned parameters for this problem.
 
     Args:
         X_train: Training features.
@@ -254,6 +256,8 @@ def train_lightgbm(
         max_depth: Maximum tree depth.
         num_leaves: Maximum number of leaves.
         min_child_samples: Minimum data points in a leaf.
+        reg_lambda: L2 regularization.
+        reg_alpha: L1 regularization.
 
     Returns:
         Tuple of (predictions, trained_model).
@@ -264,6 +268,10 @@ def train_lightgbm(
         max_depth=max_depth,
         num_leaves=num_leaves,
         min_child_samples=min_child_samples,
+        reg_lambda=reg_lambda,
+        reg_alpha=reg_alpha,
+        subsample=0.8,
+        colsample_bytree=0.8,
         random_state=config.RANDOM_SEED,
         n_jobs=-1,
         verbose=-1
@@ -295,11 +303,11 @@ def run_model_experiment(
     """
     results = []
 
-    # Prepare features
+    # Prepare features - train data gets scaled, test data does NOT get scaled yet
     X_train, y_train, scaler, le = prepare_features(train_df, feature_set, scale=scale)
-    X_test, y_test, _, _ = prepare_features(test_df, feature_set, scale=scale)
+    X_test, y_test, _, _ = prepare_features(test_df, feature_set, scale=False)  # Don't scale test yet
 
-    # For testing, use the same scaler and encoder
+    # Apply training scaler to test data (single scaling)
     if scaler is not None:
         X_test = pd.DataFrame(
             scaler.transform(X_test),

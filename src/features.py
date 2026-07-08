@@ -110,12 +110,14 @@ def compute_ewma_volatility(
     Returns:
         DataFrame of EWMA volatilities (dates x tickers).
     """
-    # Initialize with first row of squared returns
     squared_returns = returns ** 2
     ewma_var = pd.DataFrame(index=returns.index, columns=returns.columns, dtype=float)
 
-    # Set initial variance to first squared return
-    ewma_var.iloc[0] = squared_returns.iloc[0].values
+    # Initialize with 21-day average of squared returns (more stable)
+    init_var = squared_returns.iloc[:21].mean().values
+
+    # Set initial variance to the 21-day average
+    ewma_var.iloc[0] = init_var
 
     # Compute EWMA recursively
     for i in range(1, len(returns)):
