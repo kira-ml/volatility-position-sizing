@@ -1,0 +1,85 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Data files (raw and processed)
+data/raw/
+data/processed/
+data/*.csv
+data/*.parquet
+data/*.pkl
+
+# Model artifacts
+models/
+*.pkl
+*.joblib
+
+# Plots and figures (optional - comment out if you want to track them)
+plots/
+figures/
+*.png
+*.pdf
+
+# Jupyter notebook outputs (optional - comment out if you want to track cleared notebooks with outputs)
+# *.ipynb
+
+# Environment variables and secrets
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# pytest cache
+.pytest_cache/
+
+# mypy cache
+.mypy_cache/
+
+# JupyterLab workspace
+.jupyter/
