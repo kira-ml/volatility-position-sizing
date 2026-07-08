@@ -538,7 +538,27 @@ python src/visualize_3d_surface.py
 python src/visualize_3d_animated_gif.py
 ```
 
+### Final Late-Night Session: Academic Paper Generation
 
+**Completed:**
+- [x] Created `src/generate_paper.py` - A standalone Python script using ReportLab to generate an academic-style PDF.
+- [x] Implemented a professional 5–9 page, single-column academic layout with proper margins, fonts (Times New Roman), and page numbering.
+- [x] Built a complete title page including project title, subtitle, author name (Ken Ira Lacson Talingting), course affiliation, date, and a 150-word abstract.
+- [x] Structured the document into 8 core sections (Introduction, Problem Formulation, Data & Features, Methodology, Results, Economic Backtest, Discussion, Conclusion).
+- [x] Embedded 5 high-quality figures from `outputs/figures/` directly into the PDF.
+- [x] Integrated two data tables directly into the PDF (Model summary and Backtest comparison).
+- [x] Successfully generated the final `volatility_forecasting_project.pdf` in `outputs/paper/`.
+- [x] Committed the new script to Git and cleaned up the repository (removed unused `fonts/`).
+
+**Key Decisions & Lessons:**
+- **Font Selection:** Initially attempted Latin Modern Roman (`.otf`), but encountered ReportLab limitations. Switched to built-in `Times-Roman` to ensure the script runs out-of-the-box without external dependencies.
+- **Final Deliverable:** The `generate_paper.py` script and the generated PDF serve as the ultimate project documentation for portfolio presentation.
+
+**New Files Added:**
+- `src/generate_paper.py` - Script to generate the final PDF.
+
+**Final Output:**
+- `outputs/paper/volatility_forecasting_project.pdf`
 
 
 
