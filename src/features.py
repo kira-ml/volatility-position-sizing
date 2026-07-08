@@ -550,23 +550,34 @@ def get_feature_list(feature_set: str) -> List[str]:
     ]
 
     if feature_set == 'baseline_1':
+        # Keep all 3 rolling volatility features (no redundancy >0.8)
         return ['rolling_vol_21', 'rolling_vol_63', 'rolling_vol_252']
+    
     elif feature_set == 'baseline_2':
-        return ['ewma_vol_94', 'ewma_vol_90', 'ewma_vol_97']
+        # Remove redundant EWMA features (perfectly correlated)
+        # Keep only the RiskMetrics standard (λ=0.94)
+        return ['ewma_vol_94']
+    
     elif feature_set == 'baseline_3':
-        return ['rolling_vol_21', 'ewma_vol_94', 'parkinson_vol_21',
-                'vix_level', 'vix_change_5d', 'rolling_vol_63']
+        # Remove rolling_vol_21 (redundant with parkinson_vol_21 at 0.927)
+        # Keep parkinson_vol_21 (captures intraday high-low range)
+        return ['parkinson_vol_21', 'ewma_vol_94', 'vix_level', 'vix_change_5d', 'rolling_vol_63']
+    
     elif feature_set == 'advanced':
+        # Remove rolling_vol_21 (redundant with parkinson_vol_21 at 0.927)
+        # Remove market_stress (perfectly correlated with vix_level at 1.000)
         return [
-            'rolling_vol_21', 'ewma_vol_94', 'parkinson_vol_21',
+            'parkinson_vol_21', 'ewma_vol_94',
             'vix_level', 'vix_change_5d', 'rolling_vol_63',
             'vix_times_rolling_vol', 'vol_regime', 'leverage_effect',
-            'vol_of_vol', 'return_reversal_5d', 'market_stress', 'sector_relative_vol'
+            'vol_of_vol', 'return_reversal_5d', 'sector_relative_vol'
         ]
     else:
         raise ValueError(f"Unknown feature_set: {feature_set}")
+    
 
 
+    
 def filter_features(
     feature_df: pd.DataFrame,
     feature_set: str

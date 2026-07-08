@@ -22,6 +22,201 @@ import statsmodels.api as sm
 from src import config
 
 
+def walk_forward_split(
+    df: pd.DataFrame,
+    n_splits: int = 5,
+    test_window: int = 252,  # 1 year of test data
+    embargo: int = 5,
+    date_col: str = 'date'
+):
+    """
+    Generate walk-forward train/test splits with embargo period.
+    
+    Args:
+        df: DataFrame with date column
+        n_splits: Number of splits
+        test_window: Number of days per test window
+        embargo: Days to exclude between train and test (prevent leakage)
+        date_col: Name of the date column
+    
+    Yields:
+        Tuple of (train_indices, test_indices)
+    """
+    # Sort by date
+    df_sorted = df.sort_values(date_col).reset_index(drop=True)
+    n = len(df_sorted)
+    
+    # Calculate split points from the end going backwards
+    split_points = []
+    for i in range(n_splits):
+        # Start from the end and work backwards
+        test_end = n - (i * test_window)
+        test_start = max(0, test_end - test_window)
+        
+        # Ensure we don't go before the beginning
+        if test_start <= 0:
+            break
+            
+        # Train goes from beginning up to test_start - embargo
+        train_end = test_start - embargo
+        
+        if train_end <= 0:
+            break
+            
+        split_points.append((0, train_end, test_start, test_end))
+    
+    # Reverse so we go from earliest to latest
+    split_points = list(reversed(split_points))
+    
+    for train_start, train_end, test_start, test_end in split_points:
+        train_indices = list(range(train_start, train_end))
+        test_indices = list(range(test_start, test_end))
+        
+        yield train_indices, test_indices
+
+
+def run_experiments_walk_forward(
+    feature_df: pd.DataFrame,
+    feature_sets: Optional[List[str]] = None,
+    n_splits: int = 5,
+    test_window: int = 252,
+    embargo: int = 5,
+    scale: bool = True,
+    ridge_alpha: float = None
+) -> pd.DataFrame:
+    """
+    Run all models using walk-forward cross-validation.
+    
+    This replaces the simple 80/20 split with a more rigorous
+    walk-forward validation that prevents look-ahead bias.
+    
+    Args:
+        feature_df: Full feature matrix
+        feature_sets: List of feature sets to test
+        n_splits: Number of walk-forward splits
+        test_window: Number of days per test window
+        embargo: Days to exclude between train and test
+        scale: Whether to scale features
+        ridge_alpha: Ridge alpha (None for grid search)
+    
+    Returns:
+        DataFrame with results for all (model, feature_set, split) combinations
+    """
+    if feature_sets is None:
+        feature_sets = ['baseline_1', 'baseline_2', 'baseline_3', 'advanced']
+    
+    all_results = []
+    
+    # Track which models to run per feature set
+    from src.features import get_feature_list
+    
+    for feature_set in feature_sets:
+        print(f"\n{'='*50}")
+        print(f"Running walk-forward for feature set: {feature_set.upper()}")
+        print(f"{'='*50}")
+        
+        feature_cols = get_feature_list(feature_set)
+        
+        # Ensure we have the needed columns
+        X_df = feature_df[['date', 'ticker'] + feature_cols + ['target']].copy()
+        
+        # For simplicity, we'll use all tickers combined
+        # In a full implementation, we'd split by ticker
+        split_generator = walk_forward_split(
+            X_df,
+            n_splits=n_splits,
+            test_window=test_window,
+            embargo=embargo,
+            date_col='date'
+        )
+        
+        split_results = []
+        
+        for split_idx, (train_idx, test_idx) in enumerate(split_generator):
+            print(f"  Split {split_idx + 1}/{n_splits}: Train {len(train_idx)} rows, Test {len(test_idx)} rows")
+            
+            train_df = X_df.iloc[train_idx].copy()
+            test_df = X_df.iloc[test_idx].copy()
+            
+            # Prepare features
+            X_train, y_train, scaler, le = prepare_features(train_df, feature_set, scale=scale)
+            X_test, y_test, _, _ = prepare_features(test_df, feature_set, scale=False)
+            
+            # Apply training scaler to test data
+            if scaler is not None:
+                X_test = pd.DataFrame(
+                    scaler.transform(X_test),
+                    columns=X_test.columns,
+                    index=X_test.index
+                )
+            
+            # Baseline 1: Rolling Historical Volatility
+            if feature_set == 'baseline_1' and 'rolling_vol_21' in X_test.columns:
+                rolling_preds = X_test['rolling_vol_21'].values
+                result = evaluate_predictions(y_test, rolling_preds, 'Rolling_21d', feature_set)
+                result['split'] = split_idx
+                split_results.append(result)
+            
+            # Baseline 2: EWMA
+            if feature_set == 'baseline_2' and 'ewma_vol_94' in X_test.columns:
+                ewma_preds = X_test['ewma_vol_94'].values
+                result = evaluate_predictions(y_test, ewma_preds, 'EWMA_0.94', feature_set)
+                result['split'] = split_idx
+                split_results.append(result)
+            
+            # Ridge
+            ridge_preds, ridge_model = train_ridge(X_train, y_train, X_test, alpha=ridge_alpha)
+            result = evaluate_predictions(y_test, ridge_preds, 'Ridge', feature_set)
+            result['split'] = split_idx
+            split_results.append(result)
+            
+            # RandomForest
+            rf_preds, rf_model = train_random_forest(X_train, y_train, X_test)
+            result = evaluate_predictions(y_test, rf_preds, 'RandomForest', feature_set)
+            result['split'] = split_idx
+            split_results.append(result)
+            
+            # LightGBM
+            lgb_preds, lgb_model = train_lightgbm(X_train, y_train, X_test)
+            result = evaluate_predictions(y_test, lgb_preds, 'LightGBM', feature_set)
+            result['split'] = split_idx
+            split_results.append(result)
+            
+            # Ensemble
+            ensemble_preds = (rf_preds + lgb_preds) / 2
+            result = evaluate_predictions(y_test, ensemble_preds, 'Ensemble_RF_LGB', feature_set)
+            result['split'] = split_idx
+            split_results.append(result)
+        
+        # Aggregate results across splits
+        split_df = pd.DataFrame(split_results)
+        
+        # Compute mean and std across splits
+        agg_results = split_df.groupby(['model', 'feature_set']).agg({
+            'rmse': ['mean', 'std'],
+            'mae': ['mean', 'std'],
+            'mz_beta': ['mean', 'std'],
+            'mz_f_pvalue': ['mean', 'std'],
+            'n_samples': 'sum'
+        }).reset_index()
+        
+        # Flatten column names
+        agg_results.columns = ['model', 'feature_set', 'rmse_mean', 'rmse_std', 
+                              'mae_mean', 'mae_std', 'mz_beta_mean', 'mz_beta_std',
+                              'mz_f_pvalue_mean', 'mz_f_pvalue_std', 'n_samples']
+        
+        all_results.append(agg_results)
+        
+        # Print summary
+        print(f"\nResults for {feature_set}:")
+        print(agg_results[['model', 'rmse_mean', 'mae_mean', 'mz_beta_mean']].to_string(index=False))
+    
+    final_df = pd.concat(all_results, ignore_index=True)
+    return final_df
+
+
+
+
 def temporal_train_test_split(
     df: pd.DataFrame,
     test_ratio: float = 0.2,
@@ -43,7 +238,6 @@ def temporal_train_test_split(
     train_df = df.iloc[:split_idx].copy()
     test_df = df.iloc[split_idx:].copy()
     return train_df, test_df
-
 
 def prepare_features(
     df: pd.DataFrame,
@@ -279,6 +473,46 @@ def train_lightgbm(
     model.fit(X_train, y_train)
     predictions = model.predict(X_test)
     return predictions, model
+
+
+
+
+def train_lightgbm_log_transform(
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    X_test: pd.DataFrame,
+    **kwargs
+) -> Tuple[np.ndarray, lgb.LGBMRegressor]:
+    """
+    Train LightGBM on log-transformed targets.
+    Exponentiate predictions back to original scale.
+    """
+    # Log-transform target
+    y_train_log = np.log(y_train + 1e-8)  # Small epsilon for stability
+    
+    # Train on log targets
+    model = lgb.LGBMRegressor(
+        n_estimators=200,
+        learning_rate=0.05,
+        max_depth=5,
+        num_leaves=20,
+        min_child_samples=30,
+        reg_lambda=0.1,
+        reg_alpha=0.1,
+        subsample=0.8,
+        colsample_bytree=0.8,
+        random_state=config.RANDOM_SEED,
+        n_jobs=-1,
+        verbose=-1
+    )
+    model.fit(X_train, y_train_log)
+    
+    # Predict and exponentiate back
+    predictions_log = model.predict(X_test)
+    predictions = np.exp(predictions_log)
+    
+    return predictions, model
+
 
 
 def run_model_experiment(

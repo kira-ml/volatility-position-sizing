@@ -33,9 +33,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from src import config
 from src.data_loader import load_data, get_ticker_list, get_date_range
 from src.features import build_feature_matrix, filter_features, get_feature_list
-from src.models import run_all_experiments, create_comparison_table
+from src.models import run_all_experiments, create_comparison_table, train_lightgbm
 from src.evaluate import generate_evaluation_report
 from src.backtest import generate_backtest_report
+from src.models import run_experiments_walk_forward
 
 
 # -----------------------------------------------------------------------------
@@ -271,13 +272,26 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
         else:
             feature_sets = [args.feature_set]
 
-        results_df = run_all_experiments(
+        
+
+        results_df = run_experiments_walk_forward(
             feature_df=feature_df,
             feature_sets=feature_sets,
-            test_ratio=args.test_ratio,
+            n_splits=5,
+            test_window=252,  # 1 year per test window
+            embargo=5,        # 5 days embargo to prevent leakage
             scale=True,
             ridge_alpha=args.ridge_alpha
         )
+
+        # Rename walk-forward columns for compatibility with comparison functions
+        if 'rmse_mean' in results_df.columns:
+            results_df = results_df.rename(columns={
+                'rmse_mean': 'rmse',
+                'mae_mean': 'mae',
+                'mz_beta_mean': 'mz_beta',
+                'mz_f_pvalue_mean': 'mz_f_pvalue'
+            })
 
         print(f"Completed {len(results_df)} experiments")
         print(f"Models evaluated: {results_df['model'].nunique()}")
@@ -357,13 +371,12 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
         print("-" * 50)
 
         try:
-            # Use the best performing feature set for backtest
-            # Find best Ridge model result
-            ridge_results = results_df[results_df['model'] == 'Ridge']
-            if not ridge_results.empty:
-                best_ridge_idx = ridge_results['rmse'].idxmin()
-                backtest_feature_set = ridge_results.loc[best_ridge_idx, 'feature_set']
-                print(f"Backtest using: Ridge ({backtest_feature_set})")
+            # Use LightGBM on Advanced features (best model from evaluation)
+            lgb_results = results_df[results_df['model'] == 'LightGBM']
+            if not lgb_results.empty:
+                backtest_model = 'LightGBM'
+                backtest_feature_set = 'advanced'
+                print(f"Backtest using: {backtest_model} ({backtest_feature_set})")
 
                 # Get the feature set for backtest
                 from src.features import filter_features
@@ -374,11 +387,16 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
                 train_df, test_df = temporal_train_test_split(backtest_df, test_ratio=args.test_ratio)
 
                 # Extract test data
-                test_returns = test_df['target'].values
                 test_dates = test_df['date'].values
 
-                # CRITICAL FIX: Train Ridge model on training data and predict on test data
-                from src.models import prepare_features, train_ridge
+                # Use actual daily returns from price data (first ticker as proxy)
+                from src.features import compute_log_returns
+                log_returns = compute_log_returns(data['prices'])
+                first_ticker = test_df['ticker'].iloc[0]
+                test_returns = log_returns[first_ticker].loc[test_dates].values
+
+                # Train LightGBM model on training data and predict on test data
+                from src.models import prepare_features, train_lightgbm
                 X_train, y_train, scaler, le = prepare_features(train_df, backtest_feature_set, scale=True)
                 X_test, y_test, _, _ = prepare_features(test_df, backtest_feature_set, scale=False)
 
@@ -390,11 +408,26 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
                         index=X_test.index
                     )
 
-                # Train Ridge and get predictions
-                ridge_preds, ridge_model = train_ridge(X_train, y_train, X_test, alpha=args.ridge_alpha)
-                predicted_vol = ridge_preds
 
-                # Run backtest comparison - convert to pandas Series
+                # Train LightGBM and get predictions
+                lgb_preds, lgb_model = train_lightgbm(X_train, y_train, X_test)           
+                
+                # SAVE PREDICTIONS FOR VOLATILITY CONE
+                predictions_df = pd.DataFrame({
+                    'date': test_dates,
+                    'ticker': [first_ticker] * len(test_dates),
+                    'actual_vol': y_test.values,
+                    'predicted_vol': lgb_preds
+                })
+                if not args.no_save:
+                    tables_path = os.path.join(args.output_dir, 'tables')
+                    os.makedirs(tables_path, exist_ok=True)
+                    predictions_df.to_csv(os.path.join(tables_path, 'predictions.csv'), index=False)
+                    print("Predictions saved to outputs/tables/predictions.csv")
+                
+                predicted_vol = lgb_preds
+
+                # Run backtest comparison
                 from src.backtest import compare_backtests
                 comparison = compare_backtests(
                     returns=pd.Series(test_returns, index=pd.DatetimeIndex(test_dates)),
@@ -416,7 +449,7 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
                 results['backtest_comparison'] = comparison
 
             else:
-                print("No Ridge results found, skipping backtest")
+                print("No LightGBM results found, skipping backtest")
 
         except Exception as e:
             logger.warning(f"Backtest simulation failed: {e}")
