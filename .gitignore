@@ -63,10 +63,10 @@ models/
 *.joblib
 
 # Plots and figures (optional - comment out if you want to track them)
-plots/
-figures/
-*.png
-*.pdf
+# plots/
+# figures/
+# *.png
+# *.pdf
 
 # Jupyter notebook outputs (optional - comment out if you want to track cleared notebooks with outputs)
 # *.ipynb
