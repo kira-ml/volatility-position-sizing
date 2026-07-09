@@ -408,8 +408,6 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
                         index=X_test.index
                     )
 
-
-                
                 # Train LightGBM and get predictions
                 lgb_preds, lgb_model = train_lightgbm(X_train, y_train, X_test)
                 
@@ -419,8 +417,6 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
                 if scaler is not None:
                     save_scaler(scaler, backtest_feature_set)
 
-
-                
                 # SAVE PREDICTIONS FOR VOLATILITY CONE
                 predictions_df = pd.DataFrame({
                     'date': test_dates,
@@ -453,6 +449,38 @@ def run_pipeline(args: argparse.Namespace) -> Dict:
                     os.makedirs(tables_path, exist_ok=True)
                     comparison.to_csv(os.path.join(tables_path, 'backtest_comparison.csv'))
                     print(f"Backtest results saved to {tables_path}")
+
+                    # ============================================================
+                    # SAVE DAILY RETURNS FOR VISUALIZATION
+                    # ============================================================
+                    from src.backtest import backtest_static_sizing, backtest_dynamic_sizing
+                    
+                    # Ensure test_returns is a numpy array
+                    if isinstance(test_returns, pd.Series):
+                        test_returns_array = test_returns.values
+                    else:
+                        test_returns_array = test_returns
+                    
+                    # Run backtest functions to get daily returns
+                    static_results = backtest_static_sizing(test_returns_array)
+                    dynamic_results = backtest_dynamic_sizing(
+                        test_returns_array, 
+                        predicted_vol,
+                        target_vol=args.target_vol,
+                        max_leverage=args.max_leverage
+                    )
+                    
+                    # Create DataFrame with dates
+                    daily_returns_df = pd.DataFrame({
+                        'date': test_dates,
+                        'static_returns': static_results['returns'],
+                        'dynamic_returns': dynamic_results['returns']
+                    })
+                    
+                    # Save to tables directory
+                    daily_returns_path = os.path.join(args.output_dir, 'tables', 'daily_returns.csv')
+                    daily_returns_df.to_csv(daily_returns_path, index=False)
+                    print(f"Saved daily returns to {daily_returns_path}")
 
                 print("Backtest completed successfully")
                 results['backtest_comparison'] = comparison
