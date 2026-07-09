@@ -362,7 +362,7 @@ def visualize_cumulative_returns(
                 color=colors['static'], fontweight='bold', fontsize=11)
     ax.annotate(f'Dynamic: {dynamic_total:.1%}', xy=(0.02, 0.02), xycoords='axes fraction',
                 color=colors['dynamic'], fontweight='bold', fontsize=11)
-    ax.annotate(f'Improvement: {dynamic_total - static_total:+.1%}', 
+    ax.annotate(f'Δ: {dynamic_total - static_total:+.1%} p.p.', 
                 xy=(0.02, -0.04), xycoords='axes fraction',
                 color='green', fontweight='bold', fontsize=11)
     
@@ -550,8 +550,8 @@ def visualize_position_sizes(
     predicted_vol_safe = np.maximum(predicted_vol, 0.01)
     position_size = target_vol / predicted_vol_safe
     
-    # Cap at reasonable levels (0.1 to 3.0)
-    position_size = np.clip(position_size, 0.1, 3.0)
+    # Cap at MAX_LEVERAGE from config (1.0)
+    position_size = np.clip(position_size, 0.1, 1.0)
     
     fig, ax = plt.subplots(figsize=(12, 6))
     
@@ -670,7 +670,7 @@ def visualize_feature_importance(
                           'Parkinson Vol', 'Rolling Vol (63d)', 'VIX Change (5d)']
         importance_sorted = [0.25, 0.20, 0.18, 0.15, 0.12, 0.10]
     
-    colors_gradient = plt.cm.Blues(np.linspace(0.4, 0.9, len(features_sorted)))
+    colors_gradient = plt.cm.Blues_r(np.linspace(0.4, 0.9, len(features_sorted)))
     
     fig, ax = plt.subplots(figsize=(10, 6))
     
@@ -756,6 +756,7 @@ def visualize_experiment_results(
                 f'{val:+.1f}%', va='center', fontsize=9)
     
     plt.suptitle('Feature Engineering Experiment Results', fontsize=14, fontweight='bold')
+    plt.subplots_adjust(left=0.15)  # Add left margin for labels
     plt.tight_layout()
     
     os.makedirs(output_dir, exist_ok=True)
