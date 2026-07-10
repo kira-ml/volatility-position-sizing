@@ -177,10 +177,7 @@ def build_title_page(styles, story):
     ))
     story.append(Spacer(1, 0.1*inch))
 
-    story.append(Paragraph(
-        f"Generated: {datetime.now().strftime('%B %d, %Y')}",
-        styles['Author']
-    ))
+
     story.append(Spacer(1, 0.8*inch))
 
     # Abstract
